@@ -1,17 +1,47 @@
-- name: Run crawler
+name: Update Exchange Rate
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # 10분마다 자동 실행
+  workflow_dispatch:        # 수동 실행 버튼 활성화
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # 파일 쓰기 권한 명시
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4
+
+      - name: Run crawler
         run: |
           python crawler.py
-          ls -l  # 파일이 실제로 생성되었는지 로그에 출력해서 확인용
+          # 파일이 잘 만들어졌는지 로그에 목록 출력 (디버깅용)
+          ls -l exchange.json || echo "파일이 없습니다!"
 
       - name: Commit and Push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # exchange.json 파일이 존재할 때만 git add 진행
           if [ -f exchange.json ]; then
             git add exchange.json
+            # 변경사항이 있을 때만 커밋 (없으면 통과)
             git commit -m "Update exchange rate" || exit 0
             git push origin main
           else
-            echo "Error: exchange.json 파일이 생성되지 않았습니다."
+            echo "exchange.json 파일이 생성되지 않아 중단합니다."
             exit 1
           fi
