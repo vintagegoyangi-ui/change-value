@@ -2,43 +2,56 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import os
+import warnings
+from datetime import datetime
+
+# [참고] final.py의 SSL 경고 비활성화 적용
+warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
 def crawl():
+    # 환율 메인 페이지
     url = "https://finance.naver.com/marketindex/"
     
-    # [수정] 네이버가 크롤러를 차단하지 못하도록 브라우저 정보를 보냅니다.
+    # [참고] final.py에서 사용 중인 안정적인 HEADERS 설정
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     }
 
     try:
-        response = requests.get(url, headers=headers)
+        # verify=False를 추가하여 SSL 인증서 오류로 인한 차단을 방지합니다.
+        response = requests.get(url, headers=headers, timeout=10, verify=False)
+        response.encoding = 'euc-kr'
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # [수정] 태그 선택자를 더 정확하게 지정합니다.
-        usd_tag = soup.select_one(".head.usd .value")
-        jpy_tag = soup.select_one(".head.jpy_100 .value")
+        # 태그를 찾을 때 좀 더 범용적인 클래스명을 사용합니다.
+        usd_tag = soup.select_one(".usd .value")
+        jpy_tag = soup.select_one(".jpy_100 .value")
         date_tag = soup.select_one(".date")
 
         if not usd_tag or not jpy_tag:
-            raise Exception("환율 데이터를 찾을 수 없습니다. 네이버 페이지 구조가 변경되었을 수 있습니다.")
+            # 첫 번째 시도가 실패할 경우, 다른 영역(#exchangeList)에서 다시 시도합니다.
+            usd_tag = soup.select_one("#exchangeList .usd .value")
+            jpy_tag = soup.select_one("#exchangeList .jpy_100 .value")
 
-        usd = usd_tag.text
-        jpy = jpy_tag.text
-        date_text = date_tag.text if date_tag else "시간 정보 없음"
+        if not usd_tag:
+            raise Exception("데이터 추출 실패: 네이버 페이지에서 환율 태그를 찾을 수 없습니다.")
+
+        usd = usd_tag.text.replace(',', '')
+        jpy = jpy_tag.text.replace(',', '')
+        date_text = date_tag.text.strip() if date_tag else datetime.now().strftime('%Y.%m.%d %H:%M')
         
         data = {
             "usd": usd,
             "jpy": jpy,
-            "time": date_text.strip()
+            "time": date_text
         }
         
-        # 파일 저장
+        # 파일 저장 경로 (레포지토리 루트)
         file_path = os.path.join(os.path.dirname(__file__), 'exchange.json')
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
         
-        print(f"파일 생성 완료: USD {usd}, JPY {jpy}")
+        print(f"성공적으로 데이터를 저장했습니다: {data}")
         
     except Exception as e:
         print(f"크롤링 중 에러 발생: {e}")
